@@ -1,1 +1,2 @@
-# kernel_exp
+# Kernel Exploits
+Kernel exploits to self-learn
