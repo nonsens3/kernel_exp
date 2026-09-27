@@ -1,0 +1,429 @@
+{
+	"auto_complete":
+	{
+		"selected_items":
+		[
+		]
+	},
+	"buffers":
+	[
+		{
+			"contents": "#include \"linux/random.h\"\n#include \"palindromatic_util.c\"\n\nchar *temp_buffer;\nunsigned long magic;\nqueue_t incoming_queue;\nqueue_t outgoing_queue;\nbool sanitized = false;\n\n/*\n Copy request from user and add to start of queue\n*/\nstatic noinline long pm_add_request(arg_t *arg)\n{\n    long idx = -1;\n    request_t *req = kmem_cache_zalloc(pm_cache, GFP_KERNEL);\n    if(!req) goto end;\n\n    req->type = RAW;\n    req->magic = magic;\n    if(copy_from_user(req->str, arg->buffer, STRING_SZ))\n    {\n        kfree(req);º\n        goto end;\n    }\n    idx = pm_queue_enqueue(&incoming_queue, req);\n    \nend:\n    return idx;\n}\n\n/*\n Accept characters only in [A-Z|a-z] and translate to [A-Z]\n Only 1 sanitize is allowed\n*/\nstatic noinline long pm_sanitize_request(void)\n{\n    long idx = -1;\n\n    request_t *req = pm_queue_peek(&incoming_queue);\n    if(!req) goto end;\n    if(req->type == SANITIZED) goto end;\n\n    memset(temp_buffer, 0x0, STRING_SZ);\n\n    int ptr = 0;\n    for(int i = 0; i < STRING_SZ; i++)\n    {\n        if(!req->str[i]) break;\n\n        if(req->str[i] > 0x60 && req->str[i] < 0x7b)\n            temp_buffer[ptr++] = req->str[i]-0x20;\n\n        else if(req->str[i] > 0x40 && req->str[i] < 0x5b)\n            temp_buffer[ptr++] = req->str[i];\n\n        else continue;\n    }\n\n    temp_buffer[ptr] = 0;\n    strcpy(req->sanstr, temp_buffer);\n    req->type = SANITIZED;\n\n    idx = pm_queue_enqueue(&incoming_queue, pm_queue_dequeue(&incoming_queue));\n\nend:\n    return idx;\n}\n\n/*\n If request is raw, remove it\n else, set it to raw and send it back to start of the queue\n*/\nstatic noinline long pm_reset_request(void)\n{\n    request_t *req = pm_queue_dequeue(&incoming_queue);\n    if(!req) return -1;\n\n    if(req->type != RAW)\n    {\n        req->type = RAW;\n        memset(req->sanstr, 0x0, sizeof(req->sanstr));\n        pm_queue_enqueue(&incoming_queue, req);\n    }\n\n    else\n    {\n        kfree(req);\n    }\n    return 0;\n}\n\n/*\n Check if it is a palindrome or not and set type accordingly\n Remove from incoming queue and add to outgoing queue\n*/\nstatic noinline long pm_process_request(void)\n{\n    long idx = -1;\n\n    request_t *req = pm_queue_peek(&incoming_queue);\n    if(!req) goto end;\n    if(req->magic != magic) goto end;\n    int len = req->type==SANITIZED?strlen(req->sanstr):strlen(req->str);\n    if(!len) goto end;\n    idx = pm_queue_enqueue(&outgoing_queue, req);\n    if(idx < 0) goto end;\n\n    memset(temp_buffer, 0x0, STRING_SZ);\n    if(req->type == RAW)\n    {\n        for(int i = (len/2)-1; i > -1; i--)\n        {\n            if(req->str[i] < 0x41 || req->str[i] > 0x5a) break;\n            temp_buffer[i] = req->str[i];\n        }\n        temp_buffer[len/2] = 0;\n        \n        if(strcmp(temp_buffer, &req->str[len/2]+len%2)) req->type = NONPALINDROME;\n        else req->type = PALINDROME;\n        pm_queue_dequeue(&incoming_queue);\n    }\n\n    if(req->type == SANITIZED)\n    {\n        for(int i = (len/2)-1; i > -1; i--) temp_buffer[i] = req->sanstr[i];\n        temp_buffer[len/2] = 0;\n\n        if(strcmp(temp_buffer, &req->sanstr[len/2]+len%2)) req->type = NONPALINDROME;\n        else req->type = PALINDROME;\n        pm_queue_dequeue(&incoming_queue);\n    } \n\nend:\n    return idx;\n}\n\n/*\n Get result of first request in outgoing queue\n*/\nstatic noinline long pm_reap_request(void)\n{\n    request_t *req = pm_queue_dequeue(&outgoing_queue);\n    if(!req) return -1;\n    if(req->magic != magic) return -1;\n    \n    long ret = req->type==PALINDROME?1:0;\n    kfree(req);\n\n    return ret;\n}\n\n/*\n Get the available slots in both queues\n*/\nstatic noinline long pm_query_capacity(void)\n{\n    long ret = (QUEUE_SZ-pm_queue_count(&outgoing_queue))<<16 \n                | (QUEUE_SZ-pm_queue_count(&incoming_queue));\n    return ret;\n}\n\n\nstatic long pm_ioctl(struct file *file, unsigned int cmd, unsigned long uarg)\n{   \n    arg_t arg;\n    long ret = -1;\n    mutex_lock(&lock);\n\n    switch(cmd)\n    {\n        case QUEUE:\n            if(copy_from_user(&arg, (void *)uarg, sizeof(arg_t))) goto end;\n            ret = pm_add_request(&arg);\n            break;\n\n        case SANITIZE:\n            if(sanitized) goto end;\n            sanitized = true;\n            ret = pm_sanitize_request();\n            break;\n\n        case RESET:\n            ret = pm_reset_request();\n            break;\n\n        case PROCESS:\n            ret = pm_process_request();\n            break;\n\n        case REAP:\n            ret = pm_reap_request();\n            break;\n\n        case QUERY:\n            ret = pm_query_capacity();\n            break;\n\n        default:\n            goto end;\n    }\n\nend:\n    mutex_unlock(&lock);\n    return ret;\n}\n\n\nstatic int __init init_palindromatic(void)\n{\n    if(misc_register(&pm_device) < 0) goto err;\n\n    pm_cache = kmem_cache_create(\"palindromatic\", TARGET_SZ, __alignof__(request_t), \n                            SLAB_ACCOUNT | SLAB_PANIC | SLAB_HWCACHE_ALIGN | SLAB_NO_MERGE, NULL);\n    if(!pm_cache) goto err; \n\n    temp_buffer = kzalloc(TARGET_SZ, GFP_KERNEL);\n    if(!temp_buffer) goto err;\n\n    get_random_bytes(&magic, sizeof(magic));\n    pm_queue_init(&incoming_queue);\n    pm_queue_init(&outgoing_queue);\n\n    return 0;\n\nerr:\n    if(pm_cache) kmem_cache_destroy(pm_cache);\n    printk(KERN_ALERT \"[-] Failed to register pipeparty\");\n    return -1;\n}\n\n\nstatic void __exit exit_palindromatic(void)\n{\n    kfree(temp_buffer);\n    kmem_cache_destroy(pm_cache);\n    misc_deregister(&pm_device);\n}\n\nmodule_init(init_palindromatic);\nmodule_exit(exit_palindromatic);",
+			"file": "palindromatic.c",
+			"file_size": 5467,
+			"file_write_time": 133528374660000000,
+			"settings":
+			{
+				"buffer_size": 5468,
+				"line_ending": "Unix"
+			},
+			"undo_stack":
+			[
+				[
+					21,
+					1,
+					"insert",
+					{
+						"characters": "º"
+					},
+					"AQAAAP4BAAAAAAAA/wEAAAAAAAAAAAAA",
+					"AQAAAAAAAAABAAAA/gEAAAAAAAD+AQAAAAAAAAAAAAAAAPC/"
+				]
+			]
+		},
+		{
+			"file": "palindromatic_util.c",
+			"settings":
+			{
+				"buffer_size": 1461,
+				"line_ending": "Unix"
+			}
+		},
+		{
+			"file": "palindromatic.h",
+			"settings":
+			{
+				"buffer_size": 1541,
+				"line_ending": "Unix"
+			}
+		}
+	],
+	"build_system": "",
+	"build_system_choices":
+	[
+	],
+	"build_varint": "",
+	"command_palette":
+	{
+		"height": 0.0,
+		"last_filter": "",
+		"selected_items":
+		[
+			[
+				"lsp: deve",
+				"LSP Development: Parse VSCode Package JSON From Clipboard"
+			],
+			[
+				"Disable",
+				"LSP: Disable Language Server Globally"
+			],
+			[
+				"lsp: disable",
+				"LSP: Disable Language Server in Project"
+			],
+			[
+				"troubl",
+				"LSP: Troubleshoot Server"
+			],
+			[
+				"install",
+				"Package Control: Install Package"
+			],
+			[
+				"lsp",
+				"Package Control: List Packages"
+			],
+			[
+				"package control",
+				"Package Control: Install Package"
+			],
+			[
+				"package control: install",
+				"Package Control: Install Package"
+			],
+			[
+				"install p",
+				"Install Package Control"
+			]
+		],
+		"width": 0.0
+	},
+	"console":
+	{
+		"height": 0.0,
+		"history":
+		[
+		]
+	},
+	"distraction_free":
+	{
+		"menu_visible": true,
+		"show_minimap": false,
+		"show_open_files": false,
+		"show_tabs": false,
+		"side_bar_visible": false,
+		"status_bar_visible": false
+	},
+	"file_history":
+	[
+		"/home/glenn/job/kernel/palindromatic/rootfs/tmp/exploit.h",
+		"/home/glenn/job/kernel/palindromatic/src/palindromatic.c",
+		"/home/glenn/job/kernel/palindromatic/exploit",
+		"/home/glenn/job/kernel/palindromatic/src/palindromatic."
+	],
+	"find":
+	{
+		"height": 40.0
+	},
+	"find_in_files":
+	{
+		"height": 0.0,
+		"where_history":
+		[
+		]
+	},
+	"find_state":
+	{
+		"case_sensitive": false,
+		"find_history":
+		[
+		],
+		"highlight": true,
+		"in_selection": false,
+		"preserve_case": false,
+		"regex": false,
+		"replace_history":
+		[
+		],
+		"reverse": false,
+		"scrollbar_highlights": true,
+		"show_context": true,
+		"use_buffer2": true,
+		"use_gitignore": true,
+		"whole_word": false,
+		"wrap": true
+	},
+	"groups":
+	[
+		{
+			"sheets":
+			[
+				{
+					"buffer": 0,
+					"file": "palindromatic.c",
+					"selected": true,
+					"semi_transient": false,
+					"settings":
+					{
+						"buffer_size": 5468,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								336,
+								344
+							]
+						],
+						"settings":
+						{
+							"auto_complete_triggers":
+							[
+								{
+									"characters": "<",
+									"selector": "text.html, text.xml"
+								},
+								{
+									"rhs_empty": true,
+									"selector": "punctuation.accessor"
+								},
+								{
+									"characters": ".<>:\"/*",
+									"selector": "punctuation.accessor | (meta.preprocessor.include string - punctuation.definition.string.end)",
+									"server": "LSP-clangd"
+								}
+							],
+							"lsp_active": true,
+							"lsp_uri": "file:///home/glenn/job/kernel/palindromatic/src/palindromatic.c",
+							"show_definitions": false,
+							"syntax": "Packages/C++/C.sublime-syntax",
+							"tab_size": 4,
+							"translate_tabs_to_spaces": true
+						},
+						"translation.x": 0.0,
+						"translation.y": 0.0,
+						"zoom_level": 1.0
+					},
+					"stack_index": 0,
+					"stack_multiselect": false,
+					"type": "text"
+				},
+				{
+					"buffer": 1,
+					"file": "palindromatic_util.c",
+					"semi_transient": false,
+					"settings":
+					{
+						"buffer_size": 1461,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								0,
+								0
+							]
+						],
+						"settings":
+						{
+							"auto_complete_triggers":
+							[
+								{
+									"characters": "<",
+									"selector": "text.html, text.xml"
+								},
+								{
+									"rhs_empty": true,
+									"selector": "punctuation.accessor"
+								},
+								{
+									"characters": ".<>:\"/*",
+									"selector": "punctuation.accessor | (meta.preprocessor.include string - punctuation.definition.string.end)",
+									"server": "LSP-clangd"
+								}
+							],
+							"lsp_active": true,
+							"lsp_uri": "file:///home/glenn/job/kernel/palindromatic/src/palindromatic_util.c",
+							"show_definitions": false,
+							"syntax": "Packages/C++/C.sublime-syntax",
+							"tab_size": 4,
+							"translate_tabs_to_spaces": true
+						},
+						"translation.x": 0.0,
+						"translation.y": 0.0,
+						"zoom_level": 1.0
+					},
+					"stack_index": 2,
+					"stack_multiselect": false,
+					"type": "text"
+				},
+				{
+					"buffer": 2,
+					"file": "palindromatic.h",
+					"semi_transient": false,
+					"settings":
+					{
+						"buffer_size": 1541,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								0,
+								0
+							]
+						],
+						"settings":
+						{
+							"auto_complete_triggers":
+							[
+								{
+									"characters": "<",
+									"selector": "text.html, text.xml"
+								},
+								{
+									"rhs_empty": true,
+									"selector": "punctuation.accessor"
+								},
+								{
+									"characters": ".<>:\"/*",
+									"selector": "punctuation.accessor | (meta.preprocessor.include string - punctuation.definition.string.end)",
+									"server": "LSP-clangd"
+								}
+							],
+							"lsp_active": true,
+							"lsp_uri": "file:///home/glenn/job/kernel/palindromatic/src/palindromatic.h",
+							"show_definitions": false,
+							"syntax": "Packages/C++/C++.sublime-syntax",
+							"tab_size": 4,
+							"translate_tabs_to_spaces": true
+						},
+						"translation.x": 0.0,
+						"translation.y": 0.0,
+						"zoom_level": 1.0
+					},
+					"stack_index": 1,
+					"stack_multiselect": false,
+					"type": "text"
+				}
+			]
+		}
+	],
+	"incremental_find":
+	{
+		"height": 0.0
+	},
+	"input":
+	{
+		"height": 0.0
+	},
+	"layout":
+	{
+		"cells":
+		[
+			[
+				0,
+				0,
+				1,
+				1
+			]
+		],
+		"cols":
+		[
+			0.0,
+			1.0
+		],
+		"rows":
+		[
+			0.0,
+			1.0
+		]
+	},
+	"menu_visible": true,
+	"output.LSP Log Panel":
+	{
+		"height": 0.0,
+		"history":
+		[
+		]
+	},
+	"output.diagnostics":
+	{
+		"height": 0.0,
+		"history":
+		[
+		]
+	},
+	"output.find_results":
+	{
+		"height": 0.0,
+		"history":
+		[
+		]
+	},
+	"output.mdpopups":
+	{
+		"height": 0.0,
+		"history":
+		[
+		]
+	},
+	"output.mdpopups-dummy":
+	{
+		"height": 0.0,
+		"history":
+		[
+		]
+	},
+	"pinned_build_system": "",
+	"project": "palindromatic.sublime-project",
+	"replace":
+	{
+		"height": 0.0
+	},
+	"save_all_on_build": true,
+	"select_file":
+	{
+		"height": 0.0,
+		"last_filter": "",
+		"selected_items":
+		[
+		],
+		"width": 0.0
+	},
+	"select_project":
+	{
+		"height": 0.0,
+		"last_filter": "",
+		"selected_items":
+		[
+		],
+		"width": 0.0
+	},
+	"select_symbol":
+	{
+		"height": 0.0,
+		"last_filter": "",
+		"selected_items":
+		[
+		],
+		"width": 0.0
+	},
+	"selected_group": 0,
+	"settings":
+	{
+		"lsp_show_inlay_hints": false
+	},
+	"show_minimap": true,
+	"show_open_files": false,
+	"show_tabs": true,
+	"side_bar_visible": true,
+	"side_bar_width": 150.0,
+	"status_bar_visible": true,
+	"template_settings":
+	{
+	}
+}

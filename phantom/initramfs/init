@@ -1,0 +1,7 @@
+#!/bin/sh
+mount -t proc none /proc
+mount -t sysfs none /sys
+mount -t devtmpfs none /dev
+insmod /home/ctf/phantom.ko
+chmod 666 /dev/phantom
+setsid cttyhack setuidgid 1000 sh

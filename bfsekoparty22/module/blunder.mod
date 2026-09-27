@@ -1,0 +1,2 @@
+/vagrant/module/blunder.o
+

@@ -1,0 +1,15 @@
+{
+	"folders":
+	[
+	],
+	"settings":
+	{
+		"LSP":
+		{
+			"LSP-clangd":
+			{
+				"enabled": true,
+			},
+		},
+	},
+}

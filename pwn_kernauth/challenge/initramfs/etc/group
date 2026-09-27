@@ -1,0 +1,10 @@
+root:x:0:
+tty:x:5:
+user:x:1000:
+alice:x:1001:
+bob:x:1002:
+james:x:1003:
+john:x:1004:
+matthew:x:1005:
+robert:x:1006:
+ron:x:1007:

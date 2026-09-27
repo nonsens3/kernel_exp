@@ -1,0 +1,48 @@
+#!/bin/sh
+
+mount -t devtmpfs none /dev
+
+mkdir /proc
+mkdir /sys
+mount -t proc none /proc
+mount -t sysfs none /sys
+
+insmod /switchboard.ko
+chmod 666 /dev/switchboard
+
+# Ensure good permissions on fs
+chown root:root /
+chmod 755 /
+for dir in /bin /sbin /lib /lib64 /etc /usr /mnt /tmp; do
+    mkdir -p "$dir"
+    chown root:root "$dir"
+    chmod 755 "$dir"
+done
+find /bin /sbin /usr/bin /usr/sbin -type f -exec chown root:root {} +
+chown root:root /init
+chmod 744 /init
+chmod 777 /tmp
+
+cat <<'EOF'
+
+  ___   _      ___   _      ___   _      ___   _      ___   _
+ [(_)] |=|    [(_)] |=|    [(_)] |=|    [(_)] |=|    [(_)] |=|
+  '-`  |_|     '-`  |_|     '-`  |_|     '-`  |_|     '-`  |_|
+ /mmm/  /     /mmm/  /     /mmm/  /     /mmm/  /     /mmm/  /
+       |____________|____________|____________|____________|
+                             |            |            |
+                         ___  \_      ___  \_      ___  \_
+                        [(_)] |=|    [(_)] |=|    [(_)] |=|
+                         '-`  |_|     '-`  |_|     '-`  |_|
+                        /mmm/        /mmm/        /mmm/
+
+   ---     Welcome to switchboard!     ---
+   ---------------------------------------
+    We're happy to take you're calls!
+    Add a device at /dev/switchboard
+
+EOF
+
+chmod 600 /flag
+chown root:root /flag
+exec su -l ctf

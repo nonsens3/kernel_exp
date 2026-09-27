@@ -1,0 +1,37 @@
+#!/bin/sh
+
+chown -R root:root /
+
+/bin/mount -t devtmpfs devtmpfs /dev
+chown root:tty /dev/console
+chown root:tty /dev/ptmx
+chown root:tty /dev/tty
+mkdir -p /dev/pts
+mount -vt devpts -o gid=4,mode=620 none /dev/pts
+
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+
+echo 0 > /proc/sys/kernel/dmesg_restrict
+
+mknod /dev/authme c 42 0
+insmod authme.ko
+chmod 666 /dev/authme
+
+chown alice:alice /home/alice
+chown bob:bob /home/bob
+chown james:james /home/james
+chown john:john /home/john
+chown matthew:matthew /home/matthew
+chown robert:robert /home/robert
+chown ron:ron /home/ron
+chown user:user /home/user
+
+setsid cttyhack setuidgid 1001 sh
+#setsid cttyhack setuidgid 0 sh
+
+
+umount /proc
+umount /sys
+
+poweroff -d 1 -n -f

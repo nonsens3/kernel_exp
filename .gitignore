@@ -1,0 +1,12 @@
+*.img
+*.ext3
+*.cpio
+*.cpio.gz
+*.dmp
+*.zip
+*.tar.gz
+vmlinux
+bzImage
+qemu-system-x86_64
+gadgets.txt
+.gdb_history

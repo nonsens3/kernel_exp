@@ -1,0 +1,4 @@
+Palindromatic is a kernel pwn challenge in Bi0sCTF 2024 involving a null byte overflow vulnerability, cross cache, followed by DirtyPipe. The common kernel protections SMAP, SMEP, KPTI, KASLR are all enabled, with the addition of CONFIG_RANDOM_KMALLOC_CACHES which makes heap spraying more finnicky. Although I did not manage to solve this challenge during the CTF, I thought that this was a really cool challenge and since I wanted to learn how to do a DirtyPipe attack, I made this writeup :D
+
+sudo mount -o loop rootfs.ext3 rootfs
+

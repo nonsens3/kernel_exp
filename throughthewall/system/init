@@ -1,0 +1,52 @@
+#!/bin/sh
+
+# Mount filesystems
+mount -t proc none /proc
+mount -t sysfs none /sys
+mount -t devtmpfs devtmpfs /dev
+
+# Load kernel module
+echo "[*] Loading firewall module..."
+if insmod /home/ctf/firewall.ko; then
+    echo "[+] Module loaded successfully"
+    chmod 666 /dev/firewall
+else
+    echo "[-] Failed to load module"
+fi
+
+# Create flag
+echo "bctf{fake_flag}" > /flag.txt
+chmod 400 /flag.txt
+chmod 1777 /tmp
+
+# 先创建 root 行，再加 ctf 行
+echo "root:x:0:0:roooooooooooooooooooooooooooooooooooooooot:/root:/bin/sh" > /etc/passwd
+echo "ctf:x:1000:1000::/home/ctf:/bin/sh" >> /etc/passwd
+
+echo "root:x:0:" > /etc/group
+echo "ctf:x:1000:" >> /etc/group
+
+chown -R 1000:1000 /home/ctf
+
+# Banner
+cat << 'BANNER'
+=====================================
+  Kernel CTF Environment
+=====================================
+Module:  /home/ctf/firewall.ko
+Exploit: /home/ctf/exploit
+Flag:    /flag.txt (root only)
+
+You are: ctf (uid=1000)
+Goal: Exploit the firewall module!
+=====================================
+BANNER
+
+# Change to working directory
+cd /home/ctf
+while true; do
+    /bin/drop_priv
+done
+
+# If shell exits, power off
+poweroff -f

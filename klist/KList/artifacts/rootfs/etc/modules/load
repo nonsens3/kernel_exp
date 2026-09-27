@@ -1,0 +1,6 @@
+#!/bin/busybox sh
+
+for module in /etc/modules/*.ko; do
+    [ -e "$module" ] || continue
+    insmod "$module"
+done
